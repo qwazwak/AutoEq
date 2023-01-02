@@ -1,4 +1,4 @@
-﻿using AutoEQ2.Helper;
+﻿using AutoEQ.Helper;
 using System;
 using System.Collections.Generic;
 using System.Linq;

@@ -9,6 +9,8 @@ public static class Constants
 {
     public const double DEFAULT_F_MIN = 20.0;
     public const double DEFAULT_F_MAX = 20000.0;
+    public static readonly double F_MIN_MAX_ROOT = Math.Sqrt(Constants.DEFAULT_F_MAX / Constants.DEFAULT_F_MIN);
+    public static readonly double F_MIN_MAX_ROOT_DIV = F_MIN_MAX_ROOT / Constants.DEFAULT_F_MIN;
     public const double DEFAULT_STEP = 1.01;
 
     public const double DEFAULT_MAX_GAIN = 6.0;
@@ -41,9 +43,9 @@ public static class Constants
     public const double DEFAULT_PEQ_OPTIMIZER_MIN_F = 20.0;
     public const double DEFAULT_PEQ_OPTIMIZER_MAX_F = 20000.0;
     public static readonly TimeSpan DEFAULT_PEQ_OPTIMIZER_MAX_TIME = TimeSpan.FromSeconds(60);
-    public const dynamic DEFAULT_PEQ_OPTIMIZER_TARGET_LOSS = null;
-    public const dynamic DEFAULT_PEQ_OPTIMIZER_MIN_CHANGE_RATE = null;
-    public const double DEFAULT_PEQ_OPTIMIZER_MIN_STD = 0.002;
+    public static readonly double? DEFAULT_PEQ_OPTIMIZER_TARGET_LOSS = null;
+    public static readonly double? DEFAULT_PEQ_OPTIMIZER_MIN_CHANGE_RATE = null;
+    public static readonly double? DEFAULT_PEQ_OPTIMIZER_MIN_STD = 0.002;
 
     public const double DEFAULT_FIXED_BAND_FILTER_MIN_GAIN = -12.0;
     public const double DEFAULT_FIXED_BAND_FILTER_MAX_GAIN = 12.0;

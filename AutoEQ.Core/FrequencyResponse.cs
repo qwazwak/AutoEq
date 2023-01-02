@@ -1,10 +1,11 @@
 ﻿using AutoEQ.Core.Filters;
-using AutoEQ2.Helper;
+using AutoEQ.Core.Models;
+using AutoEQ.Helper;
 using CsvHelper;
-using CsvHelper.Configuration.Attributes;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -17,7 +18,6 @@ public class PeqComparer : IComparer<PEQFilter>
 {
     private static readonly Lazy<PeqComparer> _Instance = new(() => new());
     public static PeqComparer Instance => _Instance.Value;
-    //private static readonly List<string> type_order = new() { nameof(LowShelf), nameof(Peaking), nameof(HighShelf) };
     private static readonly ImmutableArray<Type> type_order = ImmutableArray.Create(typeof(LowShelf), typeof(Peaking), typeof(HighShelf));
 
     public int Compare(PEQFilter? x, PEQFilter? y)
@@ -36,47 +36,11 @@ public class PeqComparer : IComparer<PEQFilter>
         return fc_x.CompareTo(fc_y);
     }
 }
+
 public class FrequencyResponse
 {
-    public class ResponsePoint : IComparable<ResponsePoint>
-    {
-        [Name("frequency")]
-        public double Frequency { get; init; }
-
-        [Name("raw")]
-        public double Raw { get; init; }
-
-        [Name("smoothed")]
-        public double Smoothed { get; init; }
-
-        [Name("error")]
-        public double Error { get; init; }
-
-        [Name("error_smoothed")]
-        public double Error_smoothed { get; init; }
-
-        [Name("equalization")]
-        public double Equalization { get; init; }
-
-        [Name("parametric_eq")]
-        public double Parametric_eq { get; init; }
-
-        [Name("fixed_band_eq")]
-        public double Fixed_band_eq { get; init; }
-
-        [Name("equalized_raw")]
-        public double Equalized_raw { get; init; }
-
-        [Name("equalized_smoothed")]
-        public double Equalized_smoothed { get; init; }
-
-        [Name("target")]
-        public double Target { get; init; }
-
-        int IComparable<ResponsePoint>.CompareTo(ResponsePoint? other) => other == null ? throw new NullReferenceException("Cannot compare to null object") : CompareTo(other);
-        public int CompareTo(ResponsePoint other) => Frequency.CompareTo(other.Frequency);
-    }
     public string name { get; }
+   // public List<ResponsePoint> Response { get; } = new();
     public List<double> frequency { get; private set; }
     public List<double> raw { get; private set; }
     public List<double> error { get; private set; }
@@ -85,7 +49,7 @@ public class FrequencyResponse
     public List<double> equalization { get; private set; }
     public List<double> parametric_eq { get; private set; }
     public List<double> fixed_band_eq { get; private set; }
-    public List<double> equalized_raw { get; private set; }
+    public IList<double> equalized_raw { get; private set; }//{ get => ; init => AddInitData(value, (i, v) => Response[i].Equalized_raw = v); }
     public List<double> equalized_smoothed { get; private set; }
     public List<double> target { get; private set; }
 
@@ -112,9 +76,12 @@ public class FrequencyResponse
         this.equalized_raw = _init_data(equalized_raw);
         this.equalized_smoothed = _init_data(equalized_smoothed);
         this.target = _init_data(target);
+
+//        Response.Sort();
         this._sort();
 
     }
+
     private void _sort()
     {
         var sorted_inds = frequency.GetSortingIndexs().ToList();
@@ -122,26 +89,39 @@ public class FrequencyResponse
         foreach (IGrouping<double, double>? item in frequency.GroupBy(i => i).Where(i => i.Count() > 1))
             throw new ArgumentException($"Duplicate values found at frequency {item.Key}. Remove duplicates manually.");
 
-        if(raw.Count > 0)
+        if (raw.Count > 0)
             raw = raw.SortByIndexes(sorted_inds);
-        if(error.Count > 0)
+        if (error.Count > 0)
             error = error.SortByIndexes(sorted_inds);
-        if(smoothed.Count > 0)
+        if (smoothed.Count > 0)
             smoothed = smoothed.SortByIndexes(sorted_inds);
-        if(error_smoothed.Count > 0)
+        if (error_smoothed.Count > 0)
             error_smoothed = error_smoothed.SortByIndexes(sorted_inds);
-        if(equalization.Count > 0)
+        if (equalization.Count > 0)
             equalization = equalization.SortByIndexes(sorted_inds);
-        if(parametric_eq.Count > 0)
+        if (parametric_eq.Count > 0)
             parametric_eq = parametric_eq.SortByIndexes(sorted_inds);
-        if(fixed_band_eq.Count > 0)
+        if (fixed_band_eq.Count > 0)
             fixed_band_eq = fixed_band_eq.SortByIndexes(sorted_inds);
-        if(equalized_raw.Count > 0)
+        if (equalized_raw.Count > 0)
             equalized_raw = equalized_raw.SortByIndexes(sorted_inds);
-        if(equalized_smoothed.Count > 0)
+        if (equalized_smoothed.Count > 0)
             equalized_smoothed = equalized_smoothed.SortByIndexes(sorted_inds);
-        if(target.Count > 0)
+        if (target.Count > 0)
             target = target.SortByIndexes(sorted_inds);
+    }
+
+    private static void AddInitData(IList<double>? data, Action<int, double> SetValue)
+    {
+        if (data == null)
+            return;
+        for (int i = 0; i < data.Count; i++)
+        {
+            double? d = data[i];
+            if (!d.HasValue)
+                throw new ArgumentException();
+            SetValue.Invoke(i, d.Value);
+        }
     }
 
     /// <summary>
@@ -152,12 +132,13 @@ public class FrequencyResponse
     private static List<double> _init_data(IEnumerable<float>? data) => _init_data(data?.Cast<double>());
     private static List<double> _init_data(IEnumerable<int>? data) => _init_data(data?.Cast<double>());
     private static List<double> _init_data(IEnumerable<double>? data) => (data ?? Enumerable.Empty<double>()).Where(d => !double.IsNaN(d) && d != null).ToList();
+    private static List<double> _init_data() => new();
     private static List<double> generate_frequencies(double f_min = Constants.DEFAULT_F_MIN, double f_max = Constants.DEFAULT_F_MAX, double f_step = Constants.DEFAULT_STEP)
         => EnumerateFrequencies(f_min, f_max, f_step).ToList();
     private static IEnumerable<double> EnumerateFrequencies(double f_min = Constants.DEFAULT_F_MIN, double f_max = Constants.DEFAULT_F_MAX, double f_step = Constants.DEFAULT_STEP)
     {
         double f = f_min;
-        while(f <= f_max)
+        while (f <= f_max)
         {
             yield return f;
             f *= f_step;
@@ -170,7 +151,7 @@ public class FrequencyResponse
         f_center = Math.Log10(f_center);
         var a = this.frequency.Select(f => expit((Math.Log10(f) - f_center) / (half_range / 4)));
         return a.Select(i => (i * -(a_normal - a_treble)) + a_normal);
-        
+
         static double expit(double x) => 1 / (1 + Math.Exp(-x));
     }
 
@@ -180,32 +161,24 @@ public class FrequencyResponse
     /// <returns>score: Preference score, std: Standard deviation of error, slope: Slope of linear regression of error, mean: Mean of absolute error</returns>
     public (double Score, double Std, double Slope, double Mean) harman_inear_preference_score()
     {
-
         FrequencyResponse fr = copy();
-        fr.interpolate(HARMAN_INEAR_PREFENCE_FREQUENCIES);
-        dynamic sl = np.logical_and(fr.frequency >= 20, fr.frequency <= 10000)
-        dynamic x = fr.frequency[sl];
-        dynamic y = fr.error[sl];
+        fr.interpolate(Constants.HARMAN_INEAR_PREFENCE_FREQUENCIES);
+        IEnumerable<bool> sl = fr.frequency.Select(f => f >= 20 && f <= 10000).ToList();
+        IEnumerable<double> x = fr.frequency.SelectWhere(sl);
+        IEnumerable<double> y = fr.error.SelectWhere(sl);
 
         //ddof=1 is required to get the exact same numbers as the Excel from Listen Inc gives
-        double std = np.std(y, ddof = 1);
-        double slope, _, _, _, _ = linregress(np.log(x), y);
+        double std = MathEx.StdDiv(y, ddof: 1);
+        Regressor.LinearRegression(x.Select(x => Math.Log(x)), y, out double _, out double _, out double slope);
         // Mean of absolute of error centered by 500 Hz
-        double delta = fr.error[np.where(fr.frequency == 500.0)[0][0]];
-        double y = fr.error[np.logical_and(fr.frequency >= 40, fr.frequency <= 10000)] - delta;
-        double mean = np.mean(np.abs(y));
+        //double delta = fr.error[np.where(fr.frequency == 500.0)[0][0]];
+        double delta = fr.error.SelectIndexes(fr.frequency.IndexWhere(f => f == 500)).First();
+//        y = fr.error[Math.Logical_and(fr.frequency >= 40, fr.frequency <= 10000)] - delta;
+        double mean = fr.error.SelectIndexes(fr.frequency.IndexWhere(f => f >= 40 && f <= 10000)).Select(i => i - delta).Select(Math.Abs).Average();
         // Final score
-        double score = 100.0795 - 8.5 * std - 6.796 * Math.Abs(slope) - 3.475 * mean;
+        double score = 100.0795 - (8.5 * std) - (6.796 * Math.Abs(slope)) - 3.475 * mean;
 
         return (score, std, slope, mean);
-    }
-
-    public static FrequencyResponse read_from_csv(string file_path)
-    {
-
-    }
-    public static FrequencyResponse read_from_csv(FileInfo file_path)
-    {
     }
 
     /// <summary>
@@ -230,7 +203,7 @@ public class FrequencyResponse
         string data_n_pattern = @$"{float_pattern}(?:[ ,;:\t]+{float_pattern})+?";
         Regex autoeq_pattern = new(@$"^{header_pattern}(?:\n{data_n_pattern})+\n*$");
 
-        if (autoeq_pattern.IsMatch(s))
+        if (!string.IsNullOrWhiteSpace(s) && autoeq_pattern.IsMatch(s))
         {
             List<double> frequency = new();
             List<double> raw = new();
@@ -248,21 +221,22 @@ public class FrequencyResponse
                 await foreach (ResponsePoint r in csv.GetRecordsAsync<ResponsePoint>())
                 {
                     frequency.Add(r.Frequency);
-                    raw.Add(r.Raw);
-                    smoothed.Add(r.Smoothed);
-                    error.Add(r.Error);
-                    error_smoothed.Add(r.Error_smoothed);
-                    equalization.Add(r.Equalization);
-                    parametric_eq.Add(r.Parametric_eq);
-                    fixed_band_eq.Add(r.Fixed_band_eq);
-                    equalized_raw.Add(r.Equalized_raw);
-                    equalized_smoothed.Add(r.Equalized_smoothed);
-                    target.Add(r.Target);
+
+                    raw.AddIfNotNull(r.Raw);
+                    smoothed.AddIfNotNull(r.Smoothed);
+                    error.AddIfNotNull(r.Error);
+                    error_smoothed.AddIfNotNull(r.Error_smoothed);
+                    equalization.AddIfNotNull(r.Equalization);
+                    parametric_eq.AddIfNotNull(r.Parametric_eq);
+                    fixed_band_eq.AddIfNotNull(r.Fixed_band_eq);
+                    equalized_raw.AddIfNotNull(r.Equalized_raw);
+                    equalized_smoothed.AddIfNotNull(r.Equalized_smoothed);
+                    target.AddIfNotNull(r.Target);
                 }
             }
             // Known AutoEq CSV format
             return new(
-                name: name!,
+                name: name,
                 frequency: frequency,
                 raw: raw,
                 smoothed: smoothed,
@@ -295,204 +269,283 @@ public class FrequencyResponse
     }
 
 
-    /*
-    warnings.filterwarnings("ignore", message="Values in x were outside bounds during a minimize step, clipping to bounds")
+    //warnings.filterwarnings("ignore", message="Values in x were outside bounds during a minimize step, clipping to bounds")
 
-        def copy(self, name=None):
-            return self.__class__(
-                name=self.name + "_copy" if name is None else name,
-                frequency=self._init_data(self.frequency),
-                raw=self._init_data(self.raw),
-                error=self._init_data(self.error),
-                smoothed=self._init_data(self.smoothed),
-                error_smoothed=self._init_data(self.error_smoothed),
-                equalization=self._init_data(self.equalization),
-                parametric_eq=self._init_data(self.parametric_eq),
-                fixed_band_eq=self._init_data(self.fixed_band_eq),
-                equalized_raw=self._init_data(self.equalized_raw),
-                equalized_smoothed=self._init_data(self.equalized_smoothed),
-                target=self._init_data(self.target)
-            )
+    public FrequencyResponse copy(string? name = null) => new(
+        name: name ?? (this.name + "_copy"),
+        frequency: _init_data(frequency),
+        raw: _init_data(raw),
+        error: _init_data(error),
+        smoothed: _init_data(smoothed),
+        error_smoothed: _init_data(error_smoothed),
+        equalization: _init_data(equalization),
+        parametric_eq: _init_data(parametric_eq),
+        fixed_band_eq: _init_data(fixed_band_eq),
+        equalized_raw: _init_data(equalized_raw),
+        equalized_smoothed: _init_data(equalized_smoothed),
+        target: _init_data(target)
+    );
+    public void reset(IDictionary<string, bool> Dict) => reset(Dict.Where(kvp => kvp.Value).Select(kvp => kvp.Key));
+    public void reset(IEnumerable<string> ToReset) => reset(ToReset as ISet<string> ?? ToReset.ToHashSet());
+    public void reset(ISet<string> ToReset) => reset(raw: ToReset.Contains("raw"),
+            smoothed: ToReset.Contains("smoothed"),
+            error: ToReset.Contains("error"),
+            error_smoothed: ToReset.Contains("error_smoothed"),
+            equalization: ToReset.Contains("equalization"),
+            fixed_band_eq: ToReset.Contains("fixed_band_eq"),
+            parametric_eq: ToReset.Contains("parametric_eq"),
+            equalized_raw: ToReset.Contains("equalized_raw"),
+            equalized_smoothed: ToReset.Contains("equalized_smoothed"),
+            target: ToReset.Contains("target"));
+    /// <summary>
+    /// Resets data
+    /// </summary>
+    /// <param name="raw"></param>
+    /// <param name="smoothed"></param>
+    /// <param name="error"></param>
+    /// <param name="error_smoothed"></param>
+    /// <param name="equalization"></param>
+    /// <param name="fixed_band_eq"></param>
+    /// <param name="parametric_eq"></param>
+    /// <param name="equalized_raw"></param>
+    /// <param name="equalized_smoothed"></param>
+    /// <param name="target"></param>
+    /// <returns></returns>
+    public void reset(
+              bool raw = false,
+              bool smoothed = true,
+             bool error = true,
+             bool error_smoothed = true,
+            bool equalization = true,
+            bool fixed_band_eq = true,
+            bool parametric_eq = true,
+            bool equalized_raw = true,
+           bool equalized_smoothed = true,
+           bool target = true)
+    {
+        if (raw)
+            this.raw = _init_data();
+        if (smoothed)
+            this.smoothed = _init_data();
+        if (error)
+            this.error = _init_data();
+        if (error_smoothed)
+            this.error_smoothed = _init_data();
+        if (equalization)
+            this.equalization = _init_data();
+        if (parametric_eq)
+            this.parametric_eq = _init_data();
+        if (fixed_band_eq)
+            this.fixed_band_eq = _init_data();
+        if (equalized_raw)
+            this.equalized_raw = _init_data();
+        if (equalized_smoothed)
+            this.equalized_smoothed = _init_data();
+        if (target)
+            this.target = _init_data();
+    }
 
-        def reset(self,
-                  raw=False,
-                  smoothed=True,
-                  error=True,
-                  error_smoothed=True,
-                  equalization=True,
-                  fixed_band_eq=True,
-                  parametric_eq=True,
-                  equalized_raw=True,
-                  equalized_smoothed=True,
-                  target=True):
-            """Resets data."""
-            if(raw)
-                self.raw = self._init_data(None)
-            if(smoothed)
-                self.smoothed = self._init_data(None)
-            if(error)
-                self.error = self._init_data(None)
-            if(error_smoothed)
-                self.error_smoothed = self._init_data(None)
-            if(equalization)
-                self.equalization = self._init_data(None)
-            if(parametric_eq)
-                self.parametric_eq = self._init_data(None)
-            if(fixed_band_eq)
-                self.fixed_band_eq = self._init_data(None)
-            if(equalized_raw)
-                self.equalized_raw = self._init_data(None)
-            if(equalized_smoothed)
-                self.equalized_smoothed = self._init_data(None)
-            if(target)
-                self.target = self._init_data(None)
+    public IDictionary<string, object> to_dict()
+    {
+        Dictionary<string, object> d = new();
+        if (frequency.Count > 0)
+            d["frequency"] = frequency.ToList();
 
-        def to_dict(self):
-            d = dict()
-            if(self.frequency.Count > 0)
-                d["frequency"] = self.frequency.tolist()
-            if(self.raw.Count > 0)
-                d["raw"] = [x if x is not None else "NaN" for x in self.raw]
-            if(self.error.Count > 0)
-                d["error"] = [x if x is not None else "NaN" for x in self.error]
-            if(self.smoothed.Count > 0)
-                d["smoothed"] = [x if x is not None else "NaN" for x in self.smoothed]
-            if(self.error_smoothed.Count > 0)
-                d["error_smoothed"] = [x if x is not None else "NaN" for x in self.error_smoothed]
-            if(self.equalization.Count > 0)
-                d["equalization"] = [x if x is not None else "NaN" for x in self.equalization]
-            if(self.parametric_eq.Count > 0)
-                d["parametric_eq"] = [x if x is not None else "NaN" for x in self.parametric_eq]
-            if(self.fixed_band_eq.Count > 0)
-                d["fixed_band_eq"] = [x if x is not None else "NaN" for x in self.fixed_band_eq]
-            if(self.equalized_raw.Count > 0)
-                d["equalized_raw"] = [x if x is not None else "NaN" for x in self.equalized_raw]
-            if(self.equalized_smoothed.Count > 0)
-                d["equalized_smoothed"] = [x if x is not None else "NaN" for x in self.equalized_smoothed]
-            if(self.target.Count > 0)
-                d["target"] = [x if x is not None else "NaN" for x in self.target]
-            return d
+        //d["raw"] = [x if x is not None else "NaN" for x in raw];
+        if (raw.Count > 0)
+            d["raw"] = raw.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (error.Count > 0)
+            d["error"] = error.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (smoothed.Count > 0)
+            d["smoothed"] = smoothed.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (error_smoothed.Count > 0)
+            d["error_smoothed"] = error_smoothed.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (equalization.Count > 0)
+            d["equalization"] = equalization.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (parametric_eq.Count > 0)
+            d["parametric_eq"] = parametric_eq.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (fixed_band_eq.Count > 0)
+            d["fixed_band_eq"] = fixed_band_eq.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (equalized_raw.Count > 0)
+            d["equalized_raw"] = equalized_raw.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (equalized_smoothed.Count > 0)
+            d["equalized_smoothed"] = equalized_smoothed.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        if (target.Count > 0)
+            d["target"] = target.Cast<double?>().Select(x => x?.ToString() ?? "NaN");
+        return d;
+    }
+    /// <summary>
+    /// Writes data to files as CSV.
+    /// </summary>
+    /// <param name=""></param>
+    /// <returns></returns>
+    public void write_to_csv(FileInfo file_path)
+    {
+        using FileStream fs = File.OpenWrite(file_path.FullName);
+        using StreamWriter sw = new(fs);
+        write_to_csv(sw);
+     }   
+    public void write_to_csv(TextWriter Output)
+    {/*
+        using CsvWriter csv = new(Output, CultureInfo.InvariantCulture, false);
+        IDictionary<string, object>? Dict = to_dict();
+        foreach (KeyValuePair<string, object> item in )
+        {
 
-        def write_to_csv(self, file_path=None):
-            """Writes data to files as CSV."""
+        }
+        csv.WriteHeader<>
             file_path = os.path.abspath(file_path)
             df = pd.DataFrame(self.to_dict())
-            df.to_csv(file_path, header=True, index=False, float_format="%.2f")
+            df.to_csv(file_path, header = true, index = false, float_format = "%.2f")
+     */}
 
-        def eqapo_graphic_eq(self, normalize=True, preamp=Constants.DEFAULT_PREAMP, f_step=Constants.DEFAULT_GRAPHIC_EQ_STEP):
-            """Generates EqualizerAPO GraphicEQ string from equalization curve."""
-            fr = self.__class__(name="hack", frequency=self.frequency, raw=self.equalization)
-            n = np.ceil(np.log(20000 / 20) / np.log(f_step))
-            f = 20 * f_step ** np.arange(n)
-            f = np.sort(np.unique(f.astype("int")))
-            fr.interpolate(f=f)
-            if(normalize)
-                fr.raw -= np.max(fr.raw) + PREAMP_HEADROOM
-            if(preamp)
-                fr.raw += preamp
-            if(fr.raw[0] > 0.0)
-                // Prevent bass boost below lowest frequency
-                fr.raw[0] = 0.0
-            s = "; ".join(["{f} {a:.1f}".format(f=f, a=a) for f, a in zip(fr.frequency, fr.raw)])
-            s = "GraphicEQ: " + s
-            return s
+    public static IEnumerable<double> Arrange(double End, double Step = 1)
+        => Arrange(0, End, Step);
+    public static IEnumerable<double> Arrange(double Start, double End, double Step = 1)
+    {
+        double c = Start;
+        while(c <= End)
+        {
+            yield return c;
+            c += Step;
+        }
+    }
 
-        def write_eqapo_graphic_eq(self, file_path, normalize=True, preamp=Constants.DEFAULT_PREAMP):
+    /// <summary>
+    /// Generates EqualizerAPO GraphicEQ string from equalization curve.
+    /// </summary>
+    /// <param name="normalize"></param>
+    /// <param name="preamp"></param>
+    /// <param name="f_step"></param>
+    /// <returns></returns>
+    public string eqapo_graphic_eq(bool normalize=true, double? preamp = Constants.DEFAULT_PREAMP, double f_step= Constants.DEFAULT_GRAPHIC_EQ_STEP)
+    {
+        FrequencyResponse fr = new(name: "hack", frequency: frequency, raw: equalization);
+        double n = Math.Ceiling(Math.Log(20000 / 20) / Math.Log(f_step));
+        IEnumerable<int> f = Arrange(n).Select(i => 20 * Math.Pow(f_step, i))
+            .Cast<int>().Distinct().OrderByDescending(i => i);
+        fr.interpolate(f: f.Cast<double>());
+        if (normalize)
+        {
+            double RawMax = fr.raw.Max();
+            fr.raw.ApplyEach(v => v - RawMax + Constants.PREAMP_HEADROOM);
+        }
+        if (preamp.HasValue)
+            fr.raw.ApplyEach(v => v += preamp.Value);
+        if (fr.raw[0] > 0.0)
+        {
+            // Prevent bass boost below lowest frequency
+            fr.raw[0] = 0.0;
+        }
+        return  "GraphicEQ: " + string.Join("; ", fr.frequency.Zip(fr.raw, (f, a) => $"{f} {a:.1f}"));
+    }
+
+    /*
+        public dynamic write_eqapo_graphic_eq(file_path, normalize=true, preamp=Constants.DEFAULT_PREAMP):
             """Writes equalization graph to a file as Equalizer APO config."""
             file_path = os.path.abspath(file_path)
             s = self.eqapo_graphic_eq(normalize=normalize, preamp=preamp)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(s)
             return s
+    */
+        public dynamic _optimize_peq_filters(configs, fs, max_time=None, double? preamp = Constants.DEFAULT_PREAMP)
+    {
+        return _optimize_peq_filters(new configs[] { configs }, fs, max_time, preamp);
+    }
+        public dynamic _optimize_peq_filters(IEnumerable<IDictionary<string, object>> configs, fs, TimeSpan? max_time=null, double? preamp=Constants.DEFAULT_PREAMP)
+    {
+        ICollection<PEQ> peqs = new List<PEQ>();
+        FrequencyResponse fr = new(name: "optimizer", frequency: frequency, equalization: equalization);
+        if (preamp.HasValue)
+            fr.equalization.ForEach(v => v + preamp);
+        fr.interpolate(f_step: Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP);
+        DateTime start_time = DateTime.UtcNow;
+        Stopwatch sw = Stopwatch.StartNew();
+        foreach (IDictionary<string, object> config in configs)
+        {
+            if (config.ContainsKey("optimizer") && max_time.HasValue)
+                config["optimizer"]["max_time"] = max_time;
+            PEQ peq = PEQ.from_dict(config, fr.frequency, fs, target = fr.equalization);
+            peq.optimize();
+            fr.equalization.Zip(peq.fr, (e, r) => e - r);
+            peqs.Add(peq);
+            if (max_time.HasValue)
+                max_time = max_time.Value - sw.Elapsed;
+        }
+        return peqs;
+    }
+    /*
+public dynamic optimize_parametric_eq(configs, fs, max_time=None, preamp=Constants.DEFAULT_PREAMP):
+    peqs = self._optimize_peq_filters(configs, fs, max_time=max_time, preamp=preamp)
+    fr = FrequencyResponse(
+        name="PEQ", frequency=self.generate_frequencies(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP),
+        raw=np.sum(np.vstack([peq.fr for peq in peqs]), axis=0))
+    fr.interpolate(f=self.frequency)
+    self.parametric_eq = fr.raw
+    return peqs
 
-        def _optimize_peq_filters(self, configs, fs, max_time=None, preamp=Constants.DEFAULT_PREAMP):
-            if(type(configs) != list)
-                configs = [configs]
-            peqs = []
-            fr = self.__class__(name="optimizer", frequency=self.frequency, equalization=self.equalization)
-            if(preamp)
-                fr.equalization += preamp
-            fr.interpolate(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP)
-            start_time = time()
-            for config in configs:
-                if("optimizer" in config and max_time is not None)
-                    config["optimizer"]["max_time"] = max_time
-                peq = PEQ.from_dict(config, fr.frequency, fs, target=fr.equalization)
-                peq.optimize()
-                fr.equalization -= peq.fr
-                peqs.append(peq)
-                if(max_time is not None)
-                    max_time = max_time - (time() - start_time)
-            return peqs
+public dynamic optimize_fixed_band_eq(configs, fs, max_time=None, preamp=Constants.DEFAULT_PREAMP):
+    peqs = self._optimize_peq_filters(configs, fs, max_time=max_time, preamp=preamp)
+    fr = FrequencyResponse(
+        name="PEQ", frequency=self.generate_frequencies(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP),
+        raw=np.sum(np.vstack([peq.fr for peq in peqs]), axis=0))
+    fr.interpolate(f=self.frequency)
+    self.fixed_band_eq = fr.raw
+    return peqs
 
-        def optimize_parametric_eq(self, configs, fs, max_time=None, preamp=Constants.DEFAULT_PREAMP):
-            peqs = self._optimize_peq_filters(configs, fs, max_time=max_time, preamp=preamp)
-            fr = FrequencyResponse(
-                name="PEQ", frequency=self.generate_frequencies(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP),
-                raw=np.sum(np.vstack([peq.fr for peq in peqs]), axis=0))
-            fr.interpolate(f=self.frequency)
-            self.parametric_eq = fr.raw
-            return peqs
+public dynamic write_eqapo_parametric_eq(file_path, peqs):
+    """Writes EqualizerAPO Parametric eq settings to a file."""
+    file_path = os.path.abspath(file_path)
+    f = self.generate_frequencies(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP)
+    compound = PEQ(f, peqs[0].fs, [])
+    for peq in peqs:
+        for filt in peq.filters:
+            compound.add_filter(filt)
 
-        def optimize_fixed_band_eq(self, configs, fs, max_time=None, preamp=Constants.DEFAULT_PREAMP):
-            peqs = self._optimize_peq_filters(configs, fs, max_time=max_time, preamp=preamp)
-            fr = FrequencyResponse(
-                name="PEQ", frequency=self.generate_frequencies(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP),
-                raw=np.sum(np.vstack([peq.fr for peq in peqs]), axis=0))
-            fr.interpolate(f=self.frequency)
-            self.fixed_band_eq = fr.raw
-            return peqs
+    types = {"Peaking": "PK", "LowShelf": "LS", "HighShelf": "HS"}
 
-        def write_eqapo_parametric_eq(self, file_path, peqs):
-            """Writes EqualizerAPO Parametric eq settings to a file."""
-            file_path = os.path.abspath(file_path)
-            f = self.generate_frequencies(f_step=Constants.DEFAULT_BIQUAD_OPTIMIZATION_F_STEP)
-            compound = PEQ(f, peqs[0].fs, [])
-            for peq in peqs:
-                for filt in peq.filters:
-                    compound.add_filter(filt)
+    with open(file_path, "w", encoding="utf-8") as f:
+        s = f"Preamp: {-compound.max_gain:.1f} dB\n"
+        for i, filt in enumerate(compound.filters):
+            s += f"Filter {i + 1}: ON {types[filt.__class__.__name__]} Fc {filt.fc:.0f} Hz Gain {filt.gain:.1f} dB Q {filt.q:.2f}\n"
+        f.write(s)
 
-            types = {"Peaking": "PK", "LowShelf": "LS", "HighShelf": "HS"}
+@staticmethod
+def write_rockbox_10_band_fixed_eq(file_path, peq):
+    """Writes Rockbox 10 band eq settings to a file."""
+    with open(file_path, "w", encoding="utf-8") as f:
+        s = f"eq enabled: on\neq precut: {round(peq.max_gain, 1) * 10:.0f}\n"
+        for i, filt in enumerate(peq.filters):
+            if(i == 0)
+                s += f"eq low shelf filter: {filt.fc:.0f}, {round(filt.q, 1) * 10:.0f}, {round(filt.gain, 1) * 10:.0f}\n"
+            elif(i == peq.filters.Count - 1)
+                s += f"eq high shelf filter: {filt.fc:.0f}, {round(filt.q, 1) * 10:.0f}, {round(filt.gain, 1) * 10:.0f}\n"
+            else:
+                s += f"eq peak filter {i}: {filt.fc:.0f}, {round(filt.q, 1) * 10:.0f}, {round(filt.gain, 1) * 10:.0f}\n"
+        f.write(s)
+    */
+    /// <summary>
+    /// Splits file system path into components.
+    /// </summary>
+    /// <param name="dir"></param>
+    /// <returns></returns>
+    public static IEnumerable<string> _split_path(DirectoryInfo dir)
+    {
+        List<string> folders = new() { dir.Name };
+        DirectoryInfo cur = dir;
+        while (cur.Parent != null)
+        {
+            cur = cur.Parent;
+            folders.Add(cur.Name);
+        }
+        folders.Add(cur.Name);
 
-            with open(file_path, "w", encoding="utf-8") as f:
-                s = f"Preamp: {-compound.max_gain:.1f} dB\n"
-                for i, filt in enumerate(compound.filters):
-                    s += f"Filter {i + 1}: ON {types[filt.__class__.__name__]} Fc {filt.fc:.0f} Hz Gain {filt.gain:.1f} dB Q {filt.q:.2f}\n"
-                f.write(s)
-
-        @staticmethod
-        def write_rockbox_10_band_fixed_eq(file_path, peq):
-            """Writes Rockbox 10 band eq settings to a file."""
-            with open(file_path, "w", encoding="utf-8") as f:
-                s = f"eq enabled: on\neq precut: {round(peq.max_gain, 1) * 10:.0f}\n"
-                for i, filt in enumerate(peq.filters):
-                    if(i == 0)
-                        s += f"eq low shelf filter: {filt.fc:.0f}, {round(filt.q, 1) * 10:.0f}, {round(filt.gain, 1) * 10:.0f}\n"
-                    elif(i == peq.filters.Count - 1)
-                        s += f"eq high shelf filter: {filt.fc:.0f}, {round(filt.q, 1) * 10:.0f}, {round(filt.gain, 1) * 10:.0f}\n"
-                    else:
-                        s += f"eq peak filter {i}: {filt.fc:.0f}, {round(filt.q, 1) * 10:.0f}, {round(filt.gain, 1) * 10:.0f}\n"
-                f.write(s)
-
-        @staticmethod
-        def _split_path(path):
-            """Splits file system path into components."""
-            folders = []
-            while 1:
-                path, folder = os.path.split(path)
-
-                if(folder != "")
-                    folders.append(folder)
-                else:
-                    if(path != "")
-                        folders.append(path)
-
-                    break
-
-            folders.reverse()
-            return folders
-
-        def minimum_phase_impulse_response(self, fs=Constants.DEFAULT_FS, f_res=Constants.DEFAULT_F_RES, normalize=True, preamp=Constants.DEFAULT_PREAMP):
+        folders.Reverse();
+        return folders;
+    }
+        /*
+        public dynamic minimum_phase_impulse_response(fs=Constants.DEFAULT_FS, f_res=Constants.DEFAULT_F_RES, normalize=true, preamp=Constants.DEFAULT_PREAMP):
             """Generates minimum phase impulse response
 
             Inspired by:
@@ -513,8 +566,8 @@ public class FrequencyResponse
             fr = self.__class__(name="fr_data", frequency=self.frequency.copy(), raw=self.equalization.copy())
             // Save gain at lowest available frequency
             f_min = np.max([fr.frequency[0], f_res])
-            interpolator = InterpolatedUnivariateSpline(np.log10(fr.frequency), fr.raw, k=1)
-            gain_f_min = interpolator(np.log10(f_min))
+            interpolator = InterpolatedUnivariateSpline(Math.Log10(fr.frequency), fr.raw, k=1)
+            gain_f_min = interpolator(Math.Log10(f_min))
             // Filter length, optimized for FFT speed
             n = round(fs // 2 / f_res)
             n = next_fast_n.Count
@@ -541,14 +594,14 @@ public class FrequencyResponse
             ir = minimum_phase(ir, n_fft=ir.Count)
             return ir
 
-        def linear_phase_impulse_response(self, fs=Constants.DEFAULT_FS, f_res=Constants.DEFAULT_F_RES, normalize=True, preamp=Constants.DEFAULT_PREAMP):
+        public dynamic linear_phase_impulse_response(fs=Constants.DEFAULT_FS, f_res=Constants.DEFAULT_F_RES, normalize=true, preamp=Constants.DEFAULT_PREAMP):
             """Generates impulse response implementation of equalization filter."""
             // Interpolate to even sample interval
             fr = self.__class__(name="fr_data", frequency=self.frequency, raw=self.equalization)
             // Save gain at lowest available frequency
             f_min = np.max([fr.frequency[0], f_res])
-            interpolator = InterpolatedUnivariateSpline(np.log10(fr.frequency), fr.raw, k=1)
-            gain_f_min = interpolator(np.log10(f_min))
+            interpolator = InterpolatedUnivariateSpline(Math.Log10(fr.frequency), fr.raw, k=1)
+            gain_f_min = interpolator(Math.Log10(f_min))
             // Run interpolation
             fr.interpolate(np.arange(0.0, fs // 2, f_res), pol_order=1)
             // Set gain for all frequencies below original minimum frequency to match gain at the original minimum frequency
@@ -567,7 +620,7 @@ public class FrequencyResponse
             ir = firwin2(fr.frequency.Count * 2, fr.frequency, fr.raw, fs=fs)
             return ir
 
-        def write_readme(self, file_path, parametric_peqs=None, fixed_band_peq=None):
+        public dynamic write_readme(file_path, parametric_peqs=None, fixed_band_peq=None):
             """Writes README.md with picture and Equalizer APO settings."""
             file_path = os.path.abspath(file_path)
             dir_path = os.path.dirname(file_path)
@@ -639,7 +692,7 @@ public class FrequencyResponse
     /// <param name=""></param>
     /// <param name=""></param>
     /// <returns></returns>
-    public dynamic interpolate(f= None, double f_step= Constants.DEFAULT_STEP, pol_order= 1, double f_min= Constants.DEFAULT_F_MIN, double f_max = Constants.DEFAULT_F_MAX)
+    public void interpolate(IEnumerable<double>? f = null, double f_step = Constants.DEFAULT_STEP, double f_min = Constants.DEFAULT_F_MIN, double f_max = Constants.DEFAULT_F_MAX)
     {
         // Remove None values
         int i = 0;
@@ -655,95 +708,118 @@ public class FrequencyResponse
                 i += 1;
             }
         }
-    
+
         // Interpolation functions
-        keys = "raw error error_smoothed equalization equalized_raw equalized_smoothed target".split()
-            interpolators = dict()
-            log_f = np.log10(self.frequency)
-            for key in keys:
-            if (self.__dict__[key].Count > 0)
-                interpolators[key] = InterpolatedUnivariateSpline(log_f, self.__dict__[key], k = pol_order)
-    
-        if (f is None)
-            self.frequency = self.generate_frequencies(f_min = f_min, f_max = f_max, f_step = f_step)
-        else:
-            self.frequency = np.array(f)
-    
+        ImmutableDictionary<string, IList<double>> keys = ImmutableDictionary<string, IList<double>>.Empty
+            .Add("raw", raw)
+            .Add("error", error)
+            .Add("error_smoothed", error_smoothed)
+            .Add("equalization", equalization)
+            .Add("equalized_raw", equalized_raw)
+            .Add("equalized_smoothed", equalized_smoothed)
+            .Add("target", target);
+        Dictionary<string, Interpolation> interpolators = new();
+        IEnumerable<double> log_f = frequency.Select(f => Math.Log10(f));
+        foreach (KeyValuePair<string, IList<double>> kvp in keys)
+        {
+            string key = kvp.Key;
+            IList<double> list = kvp.Value;
+            if (list.Count > 0)
+                interpolators[key] = new Interpolation(log_f.ToList(), list, list.Count/*, k = pol_order*/);
+        }
+        frequency = (f ?? generate_frequencies(f_min: f_min, f_max: f_max, f_step: f_step)).ToList();
+
         // Prevent log10 from exploding by replacing zero frequency with small value
-        zero_freq_fix = False
-            if (self.frequency[0] == 0)
-            self.frequency[0] = 0.001
-                zero_freq_fix = True
-    
+        bool zero_freq_fix;
+        if (zero_freq_fix = frequency[0] == 0)
+            frequency[0] = 0.001;
         // Run interpolators
-        log_f = np.log10(self.frequency)
-            for key in keys:
-            if (self.__dict__[key].Count and key in interpolators)
-                self.__dict__[key] = interpolators[key](log_f)
-    
+        log_f = frequency.Select(f => Math.Log10(f));
+        foreach (KeyValuePair<string, IList<double>> kvp in keys)
+        {
+            string key = kvp.Key;
+            IList<double> list = kvp.Value;
+            if (list.Count > 0 && interpolators.TryGetValue(key, out Interpolation? interp))
+                list = interp.Interpolate(log_f).ToList();
+        }
+
         if (zero_freq_fix)
             // Restore zero frequency
-            self.frequency[0] = 0
-    
+            frequency[0] = 0;
+
         // Everything but the interpolated data is affected by interpolating, reset them
-        self.reset(**{ key: False for key in keys})
-}
+        reset(**{ key: false for key in keys})
+    }
+    /// <summary>
+    /// Removed bias from frequency response.
+    /// </summary>
+    /// <param name="frequency">Frequency which is set to 0 dB.If this is a list with two values then an average between the two frequencies is set to 0 dB.</param>
+    /// <returns>Gain shifted</returns>
+    private double center(double frequencyLower, double frequencyHigher)
+    {
+        FrequencyResponse equal_energy_fr = new(name: "equal_energy", frequency: frequency.ToList(), raw: raw.ToList());
+        // Use the average of the gain values between the given frequencies as the difference to be subtracted
+        double diff = (from i in Enumerable.Range(0, equal_energy_fr.raw.Count)
+                       let EqualEnergyFreq = equal_energy_fr.frequency[i]
+                       where EqualEnergyFreq >= frequencyLower && EqualEnergyFreq <= frequencyHigher
+                       select equal_energy_fr.raw[i]
+                      ).Average();
+        return centerCore(diff);
+    }
+    /// <summary>
+    /// Removed bias from frequency response.
+    /// </summary>
+    /// <param name="frequency">Frequency which is set to 0 dB.If this is a list with two values then an average between the two frequencies is set to 0 dB.</param>
+    /// <returns>Gain shifted</returns>
+    public double center(double frequency = 1000.0)
+    {
+        FrequencyResponse equal_energy_fr = new(name: "equal_energy", frequency: this.frequency.ToList(), raw: raw.ToList());
+        double diff;
+            Interpolation interpolator = new(equal_energy_fr.frequency.Select(Math.Log10), equal_energy_fr.raw, equal_energy_fr.frequency.Count * 2);
+
+            // Use the gain value at the given frequency as the difference to be subtracted
+            diff = interpolator.Interpolate(Math.Log10(frequency));
+        
+        return centerCore(diff);
+    }
+    /// <summary>
+    /// Removed bias from frequency response.
+    /// </summary>
+    /// <param name="frequency">Frequency which is set to 0 dB.If this is a list with two values then an average between the two frequencies is set to 0 dB.</param>
+    /// <returns>Gain shifted</returns>
+    private double centerCore(double diff)
+    {
+        FrequencyResponse equal_energy_fr = new(name: "equal_energy", frequency: frequency.ToList(), raw: raw.ToList());
+
+        raw.SubEach(diff);
+        if (smoothed.Count > 0)
+            smoothed.SubEach(diff);
+        if (error.Count > 0)
+            error.AddEach(diff);
+        if (error_smoothed.Count > 0)
+            error_smoothed.AddEach(diff);
+
+        // Everything but raw, smoothed, errors and target is affected by centering, reset them
+        reset(raw: false, smoothed: false, error: false, error_smoothed: false, target: false);
+
+        return -diff;
+    }
+
+    /// <summary>
+    /// Creates a tilt for equalization.
+    /// </summary>
+    /// <param name="tilt">Slope steepness in dB/octave</param>
+    /// <returns>Tilted data</returns>
+    public IEnumerable<double> _tilt(double tilt = Constants.DEFAULT_TILT)
+    {
+        // Center in logarithmic scale
+        double c = Constants.F_MIN_MAX_ROOT_DIV;
+        // N octaves above center
+        return frequency.Select(f => Math.Log2(f / c) * tilt);
+    }
+
     /*
-        def center(self, frequency=1000):
-            """Removed bias from frequency response.
-
-            Args:
-                frequency: Frequency which is set to 0 dB. If this is a list with two values then an average between the two
-                           frequencies is set to 0 dB.
-
-            Returns:
-                Gain shifted
-            """
-            equal_energy_fr = self.__class__(name="equal_energy", frequency=self.frequency.copy(), raw=self.raw.copy())
-            equal_energy_fr.interpolate()
-            interpolator = InterpolatedUnivariateSpline(np.log10(equal_energy_fr.frequency), equal_energy_fr.raw, k=1)
-            if(type(frequency) in [list, np.ndarray] and frequency.Count > 1)
-                // Use the average of the gain values between the given frequencies as the difference to be subtracted
-                diff = np.mean(equal_energy_fr.raw[np.logical_and(
-                    equal_energy_fr.frequency >= frequency[0],
-                    equal_energy_fr.frequency <= frequency[1]
-                )])
-            else:
-                if(type(frequency) in [list, np.ndarray])
-                    // List or array with only one element
-                    frequency = frequency[0]
-                // Use the gain value at the given frequency as the difference to be subtracted
-                diff = interpolator(np.log10(frequency))
-
-            self.raw -= diff
-            if(self.smoothed.Count > 0)
-                self.smoothed -= diff
-            if(self.error.Count > 0)
-                self.error += diff
-            if(self.error_smoothed.Count > 0)
-                self.error_smoothed += diff
-
-            // Everything but raw, smoothed, errors and target is affected by centering, reset them
-            self.reset(raw=False, smoothed=False, error=False, error_smoothed=False, target=False)
-
-            return -diff
-
-        def _tilt(self, tilt=Constants.DEFAULT_TILT):
-            """Creates a tilt for equalization.
-
-            Args:
-                tilt: Slope steepness in dB/octave
-
-            Returns:
-                Tilted data
-            """
-            // Center in logarithmic scale
-            c = Constants.DEFAULT_F_MIN * np.sqrt(Constants.DEFAULT_F_MAX / Constants.DEFAULT_F_MIN)
-            // N octaves above center
-            n_oct = np.log2(self.frequency / c)
-            return n_oct * tilt
-
-        def create_target(self,
+        public dynamic create_target(
                           bass_boost_gain=Constants.DEFAULT_BASS_BOOST_GAIN,
                           bass_boost_fc=Constants.DEFAULT_BASS_BOOST_FC,
                           bass_boost_q=Constants.DEFAULT_BASS_BOOST_Q,
@@ -776,7 +852,7 @@ public class FrequencyResponse
                 tilt = np.zeros(self.frequency.Count)
             return bass_boost.fr + treble_boost.fr + tilt
 
-        def compensate(self,
+        public dynamic compensate(
                        compensation,
                        bass_boost_gain=Constants.DEFAULT_BASS_BOOST_GAIN,
                        bass_boost_fc=Constants.DEFAULT_BASS_BOOST_FC,
@@ -787,7 +863,7 @@ public class FrequencyResponse
                        tilt=None,
                        fs=Constants.DEFAULT_FS,
                        sound_signature=None,
-                       min_mean_error=False):
+                       min_mean_error=false):
             """Sets target and error curves."""
             // Copy and center compensation data
             compensation = self.__class__(name="compensation", frequency=compensation.frequency, raw=compensation.raw)
@@ -815,25 +891,25 @@ public class FrequencyResponse
             self.error = self.raw - self.target
             if(min_mean_error)
                 // Shift error by it's mean in range 100 Hz to 10 kHz
-                delta = np.mean(self.error[np.logical_and(self.frequency >= 100, self.frequency <= 10000)])
+                delta = np.mean(self.error[Math.Logical_and(self.frequency >= 100, self.frequency <= 10000)])
                 self.error -= delta
                 self.target += delta
 
             // Smoothed error and equalization results are affected by compensation, reset them
             self.reset(
-                raw=False,
-                smoothed=False,
-                error=False,
-                error_smoothed=True,
-                equalization=True,
-                parametric_eq=True,
-                fixed_band_eq=True,
-                equalized_raw=True,
-                equalized_smoothed=True,
-                target=False
+                raw=false,
+                smoothed=false,
+                error=false,
+                error_smoothed=true,
+                equalization=true,
+                parametric_eq=true,
+                fixed_band_eq=true,
+                equalized_raw=true,
+                equalized_smoothed=true,
+                target=false
             )
 
-        def _window_size(self, octaves):
+        public dynamic _window_size(octaves):
             """Calculates moving average window size in indices from octaves."""
             // Octaves to coefficient
             k = 2 ** octaves
@@ -854,7 +930,7 @@ public class FrequencyResponse
             return window_size
 
 
-        def _smoothen_fractional_octave(self,
+        public dynamic _smoothen_fractional_octave(
                                         data,
                                         window_size=Constants.DEFAULT_SMOOTHING_WINDOW_SIZE,
                                         iterations=Constants.DEFAULT_SMOOTHING_ITERATIONS,
@@ -897,7 +973,7 @@ public class FrequencyResponse
             k_normal = k_treble * -1 + 1
             return y_normal * k_normal + y_treble * k_treble
 
-        def smoothen_fractional_octave(self,
+        public dynamic smoothen_fractional_octave(
                                        window_size=Constants.DEFAULT_SMOOTHING_WINDOW_SIZE,
                                        iterations=Constants.DEFAULT_SMOOTHING_ITERATIONS,
                                        treble_window_size=Constants.DEFAULT_TREBLE_SMOOTHING_WINDOW_SIZE,
@@ -944,23 +1020,23 @@ public class FrequencyResponse
 
             // Equalization is affected by smoothing, reset equalization results
             self.reset(
-                raw=False,
-                smoothed=False,
-                error=False,
-                error_smoothed=False,
-                equalization=True,
-                parametric_eq=True,
-                fixed_band_eq=True,
-                equalized_raw=True,
-                equalized_smoothed=True,
-                target=False
+                raw=false,
+                smoothed=false,
+                error=false,
+                error_smoothed=false,
+                equalization=true,
+                parametric_eq=true,
+                fixed_band_eq=true,
+                equalized_raw=true,
+                equalized_smoothed=true,
+                target=false
             )
 
-        def equalize(self,
+        public dynamic equalize(
                      max_gain=Constants.DEFAULT_MAX_GAIN,
                      limit=Constants.DEFAULT_MAX_SLOPE,
                      limit_decay=0.0,
-                     concha_interference=False,
+                     concha_interference=false,
                      window_size=1 / 12,
                      treble_window_size=2,
                      treble_f_lower=Constants.DEFAULT_TREBLE_F_LOWER,
@@ -1008,14 +1084,14 @@ public class FrequencyResponse
                 self.equalized_raw = self.raw + self.equalization
                 if(self.smoothed.Count > 0)
                     self.equalized_smoothed = self.smoothed + self.equalization
-                return y, fr.smoothed.copy(), np.array([]), np.array([False] * y.Count), np.array([]), \
-                    np.array([False] * y.Count), np.array([]), np.array([]), y.Count - 1, np.array([False] * y.Count)
+                return y, fr.smoothed.copy(), np.array([]), np.array([false] * y.Count), np.array([]), \
+                    np.array([false] * y.Count), np.array([]), np.array([]), y.Count - 1, np.array([false] * y.Count)
 
             else:
                 limit_free_mask = self.protection_mask(y, peak_inds, dip_inds)
                 if(concha_interference)
                     // 8 kHz - 11.5 kHz should not be limit free zone
-                    limit_free_mask[np.logical_and(x >= 8000, x <= 11500)] = False
+                    limit_free_mask[Math.Logical_and(x >= 8000, x <= 11500)] = false
 
                 // Find rtl start index
                 rtl_start = self.find_rtl_start(y, peak_inds, dip_inds)
@@ -1093,7 +1169,7 @@ public class FrequencyResponse
 
         @classmethod
         def limited_rtl_slope(cls, x, y, limit, limit_decay=0.0, start_index=0, peak_inds=None, limit_free_mask=None,
-                              concha_interference=False):
+                              concha_interference=false):
             """Limits right to left slope of an equalization curve.
 
                 Args:
@@ -1126,7 +1202,7 @@ public class FrequencyResponse
 
         @classmethod
         def limited_ltr_slope(cls, x, y, limit, limit_decay=0.0, start_index=0, peak_inds=None, limit_free_mask=None,
-                              concha_interference=False):
+                              concha_interference=false):
             """Limits left to right slope of a equalization curve.
 
             Args:
@@ -1154,7 +1230,7 @@ public class FrequencyResponse
                 if(i <= start_index)
                     // No clipping before start index
                     limited.append(y[i])
-                    clipped.append(False)
+                    clipped.append(false)
                     continue
 
                 // Calculate slope and local limit
@@ -1164,16 +1240,16 @@ public class FrequencyResponse
 
                 if(clipped[-1])
                     // Previous sample clipped, reduce limit
-                    local_limit *= (1 - limit_decay) ** np.log2(x[i] / x[regions[-1][0]])
+                    local_limit *= (1 - limit_decay) ** Math.Log2(x[i] / x[regions[-1][0]])
 
                 if(slope > local_limit and (limit_free_mask is None or not limit_free_mask[i]))
                     // Slope between the two samples is greater than the local maximum slope, clip to the max
                     if(not clipped[-1])
                         // Start of clipped region
                         regions.append([i])
-                    clipped.append(True)
+                    clipped.append(true)
                     // Add value with limited change
-                    octaves = np.log(x[i] / x[i - 1]) / np.log(2)
+                    octaves = Math.Log(x[i] / x[i - 1]) / Math.Log(2)
                     limited.append(limited[-1] + local_limit * octaves)
 
                 else:
@@ -1186,12 +1262,12 @@ public class FrequencyResponse
                         regions[-1].append(i + 1)
 
                         region_start = regions[-1][0]
-                        if(peak_inds is not None and not np.any(np.logical_and(peak_inds >= region_start, peak_inds < i)))
+                        if(peak_inds is not None and not np.any(Math.Logical_and(peak_inds >= region_start, peak_inds < i)))
                             // None of the peak indices found in the current region, discard limitations
                             limited[region_start:i] = y[region_start:i]
-                            clipped[region_start:i] = [False] * (i - region_start)
+                            clipped[region_start:i] = [false] * (i - region_start)
                             regions.pop()
-                    clipped.append(False)
+                    clipped.append(false)
 
             if(regions.Count and regions[-1].Count == 1)
                 regions[-1].append(x.Count - 1)
@@ -1201,7 +1277,7 @@ public class FrequencyResponse
         @staticmethod
         def log_log_gradient(f0, f1, g0, g1):
             """Calculates gradient (derivative) in dB per octave."""
-            octaves = np.log(f1 / f0) / np.log(2)
+            octaves = Math.Log(f1 / f0) / Math.Log(2)
             gain = g1 - g0
             return gain / octaves
 
@@ -1259,25 +1335,25 @@ public class FrequencyResponse
             ax.set_ylabel("Amplitude (dBr)")
             if(a_min is not None or a_max is not None)
                 ax.set_ylim([a_min, a_max])
-            ax.grid(True, which="major")
-            ax.grid(True, which="minor")
+            ax.grid(true, which="major")
+            ax.grid(true, which="minor")
             ax.xaxis.set_major_formatter(ticker.StrMethodFormatter("{x:.0f}"))
             ax.set_xticks([20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000])
             return fig, ax
 
-        def plot_graph(self,
+        public dynamic plot_graph(
                        fig=None,
                        ax=None,
-                       show=True,
-                       raw=True,
-                       error=True,
-                       smoothed=True,
-                       error_smoothed=True,
-                       equalization=True,
-                       parametric_eq=True,
-                       fixed_band_eq=True,
-                       equalized=True,
-                       target=True,
+                       show=true,
+                       raw=true,
+                       error=true,
+                       smoothed=true,
+                       error_smoothed=true,
+                       equalization=true,
+                       parametric_eq=true,
+                       fixed_band_eq=true,
+                       equalized=true,
+                       target=true,
                        file_path=None,
                        f_min=Constants.DEFAULT_F_MIN,
                        f_max=Constants.DEFAULT_F_MAX,
@@ -1293,7 +1369,7 @@ public class FrequencyResponse
                        fixed_band_eq_plot_kwargs=None,
                        equalized_plot_kwargs=None,
                        target_plot_kwargs=None,
-                       close=False):
+                       close=false):
             """Plots frequency response graph."""
             if(not self.frequency.Count > 0)
                 raise ValueError("\"frequency\" has no data!")
@@ -1366,14 +1442,14 @@ public class FrequencyResponse
                 fig.savefig(file_path, dpi=120)
                 im = Image.open(file_path)
                 im = im.convert("P", palette=Image.ADAPTIVE, colors=60)
-                im.save(file_path, optimize=True)
+                im.save(file_path, optimize=true)
             if(show)
                 plt.show()
             elif(close)
                 plt.close(fig)
             return fig, ax
 
-        def harman_onear_preference_score(self):
+        public dynamic harman_onear_preference_score()
             """Calculates Harman preference score for over-ear and on-ear headphones.
 
             Returns:
@@ -1383,19 +1459,19 @@ public class FrequencyResponse
             """
             fr = self.copy()
             fr.interpolate(HARMAN_ONEAR_PREFERENCE_FREQUENCIES)
-            sl = np.logical_and(fr.frequency >= 50, fr.frequency <= 10000)
+            sl = Math.Logical_and(fr.frequency >= 50, fr.frequency <= 10000)
             x = fr.frequency[sl]
             y = fr.error[sl]
 
             std = np.std(y, ddof=1)  // ddof=1 is required to get the exact same numbers as the Excel from Listen Inc gives
-            slope, _, _, _, _ = linregress(np.log(x), y)
+            slope, _, _, _, _ = linregress(Math.Log(x), y)
             score = 114.490443008238 - 12.62 * std - 15.5163857197367 * np.abs(slope)
 
             return score, std, slope
 
-        def process(self,
+        public dynamic process(
                     compensation=None,
-                    min_mean_error=False,
+                    min_mean_error=false,
                     bass_boost_gain=None,
                     bass_boost_fc=None,
                     bass_boost_q=None,
@@ -1406,7 +1482,7 @@ public class FrequencyResponse
                     fs=Constants.DEFAULT_FS,
                     sound_signature=None,
                     max_gain=Constants.DEFAULT_MAX_GAIN,
-                    concha_interference=False,
+                    concha_interference=false,
                     window_size=Constants.DEFAULT_SMOOTHING_WINDOW_SIZE,
                     treble_window_size=Constants.DEFAULT_TREBLE_SMOOTHING_WINDOW_SIZE,
                     treble_f_lower=Constants.DEFAULT_TREBLE_F_LOWER,

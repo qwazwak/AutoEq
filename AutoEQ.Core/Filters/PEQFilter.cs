@@ -1,18 +1,23 @@
-﻿using System;
+﻿using AutoEQ.Helper;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace AutoEQ.Core.Filters;
 public abstract class PEQFilter
 {
+    protected readonly ResettableLazy<int> _ix10k;
+    protected readonly ResettableLazy<int> _ix20k;
+    public int ix10k => _ix10k.Value;
+    public int ix20k => _ix20k.Value;
     private List<double> _f;
     public List<double> f
     {
         get => _f;
         set
         {
-            _ix10k = null;
-            //_ix20k = null;
+            _ix10k.Reset();
+            _ix20k.Reset();
             _fr = null;
             _f = value;
         }
@@ -28,13 +33,8 @@ public abstract class PEQFilter
         }
     }
 
-    public bool optimize_fc => params_fc != null;
     public (double min, double max)? params_fc { get; init; }
-
-    public bool optimize_q => params_q != null;
     public (double min, double max)? params_q { get; init; }
-
-    public bool optimize_gain => params_gain != null;
     public (double min, double max)? params_gain { get; init; }
 
     protected double? _fc;
@@ -69,19 +69,10 @@ public abstract class PEQFilter
         }
     }
 
-    protected double? _ix10k = null;
-    public double ix10k
-    {
-        get
-        {
-            if (_ix10k.HasValue)
-                return _ix10k.Value;
-            //return np.argmin(np.abs(self.f - self.fs))
-            return f.Select(f => Math.Abs(f - fs)).Min();
-        }
-    }
     public PEQFilter(IEnumerable<double> f, int fs)
     {
+        _ix10k = new(() => f.IndexClosestTo(10000));
+        _ix20k = new(() => f.IndexClosestTo(20000));
         this.f = f.ToList();
         this.fs = fs;
             /*
@@ -118,11 +109,11 @@ public abstract class PEQFilter
 
     private void VerifyState()
     {
-        if(!optimize_fc && fc == null)
+        if(!params_fc.HasValue && fc == null)
             throw new ArgumentException("fc must be given when not optimizing it");
-        if (!optimize_q && q == null)
+        if (!params_q.HasValue && q == null)
             throw new ArgumentException("q must be given when not optimizing it");
-        if (!optimize_fc && fc == null)
+        if (!params_fc.HasValue && fc == null)
            throw new ArgumentException("gain must be given when not optimizing it");
     }
     public override string ToString() => $"{GetType().Name} {fc:.0f} Hz, {q:.2f} Q, {gain:.1f} dB";
@@ -183,5 +174,21 @@ public abstract class PEQFilter
 
     public abstract (double a0, double a1, double a2, double b0, double b1, double b2) biquad_coefficients { get; }
     public abstract double sharpness_penalty { get; }
-    public abstract double band_penalty { get; }
+    public virtual double band_penalty
+    {
+        get
+        {
+
+            //Index to frequency array closes to center frequency
+            //f.Select(i => Math.Abs(i - fc!.Value));
+            int fc_ix = f.IndexClosestTo(fc.Value);
+            // Number of indexes on each side of center frequency, not extending outside, only up to 10 kHz
+            int n = Math.Min(fc_ix, ix10k - fc_ix);
+            if (n == 0)
+                return 0.0;
+            var Lows = fr.EnumerateRange(fc_ix - n, fc_ix, false);
+            var highs = fr.EnumerateRangeReverse(fc_ix + n, fc_ix, false);
+            return Lows.Zip(highs, (l, h) => Math.Pow(l - h, 2)).Average();
+        }
+    }
 }

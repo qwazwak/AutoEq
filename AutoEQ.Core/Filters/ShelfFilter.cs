@@ -1,4 +1,4 @@
-﻿using AutoEQ2.Helper;
+﻿using AutoEQ.Helper;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -20,27 +20,6 @@ public abstract class ShelfFilter : PEQFilter
     /// </summary>
     public override double sharpness_penalty => 0.0;
 
-        /// <summary>
-        /// Calculates penalty for transition band extending Nyquist frequency
-        /// </summary>
-        /// <remarks>Biquad filter shape starts to get distorted when the transition band extends Nyquist frequency in such a way
-        /// that the right side gets compressed(greater slope). This method calculates the MSE between
-        /// the left and right sides of the frequency response.If the right side is fully compressed, the penalty is the
-        /// entire effect of frequency response thus negating the filter entirely.Right side is mirrored around both axes.</remarks>
-        /// <param name=""></param>
-        /// <returns></returns>
-    public override double band_penalty { get
-        {
-            //Index to frequency array closes to center frequency
-            double fc_ix = np.argmin(np.abs(self.f - self.fc));
-            // Number of indexes on each side of center frequency, not extending outside, only up to 10 kHz
-            double n = Math.Min(fc_ix, ix10k - fc_ix);
-            if (n == 0)
-                return 0.0;
-
-            return np.mean(np.square(self.fr[fc_ix - n:fc_ix] - (self.gain - self.fr[fc_ix + n - 1:fc_ix - 1:-1])));
-        }
-    }
     /// <summary>
     /// Initializes optimizable center frequency (fc), qualtiy (q) and gain
     /// The operating principle is to find a point before which the average level is greatest and set the center
@@ -53,10 +32,10 @@ public abstract class ShelfFilter : PEQFilter
     {
         double? Quality = null;
         double? Gain = null;
-        if (optimize_q)
+        if (optimize_q.HasValue)
             Quality = q = Math.Clamp(0.7, params_q!.Value.min, params_q!.Value.max);
 
-        if (optimize_gain)
+        if (optimize_gain.HasValue)
         {
             // Calculated weighted average from the target where the frequency response (dBs) of a 1 dB shelf is the weight vector
             gain = 1;

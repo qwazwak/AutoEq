@@ -1,4 +1,4 @@
-﻿using AutoEQ2.Helper;
+﻿using AutoEQ.Helper;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,7 +23,7 @@ public class HighShelf : ShelfFilter
     {
         double? CenterFrequency = null;
         (double? Quality, double? Gain) = Shelfinit(target);
-        if (optimize_fc)
+        if (params_fc.HasValue)
         {
             // Find point where the ratio of average level after the point and average level before the point is the greatest
             int min_ix = f.Count(f => f < Math.Max(40, params_fc.Value.min));

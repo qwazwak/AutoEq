@@ -1,39 +1,51 @@
 using AutoEQ.Core.Filters;
+using AutoEQ.Core.Models;
+using AutoEQ.Helper;
+using MathNet.Numerics.Optimization;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Drawing;
 using System.Linq;
+using System.Reflection.Emit;
 
 namespace AutoEQ.Core;
 
 public class PEQ
 {
     public double fs { get; }
-    public List<double> f { get; }
-    public List<double>? target { get; set; }
+    public double[] FrequencyArray;
+    public IList<double> f => FrequencyArray;
+    private double[]? TargetArray;
+    public IList<double>? target => TargetArray;
     public List<PEQFilter> filters { get; } = new();
-    public List<dynamic> history { get; } = new();
+    public OptimizationHistory history { get; private set; } = new();
 
     public double min_f { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MIN_F;
     public double max_f { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MAX_F;
 
-    public TimeSpan max_time { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MAX_TIME;
-    public double target_loss { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_TARGET_LOSS;
-    public double min_change_rate { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MIN_CHANGE_RATE;
-    public double min_std { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MIN_STD;
+    public TimeSpan? max_time { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MAX_TIME;
+    public double? target_loss { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_TARGET_LOSS;
+    public double? min_change_rate { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MIN_CHANGE_RATE;
+    public double? min_std { get; set; } = Constants.DEFAULT_PEQ_OPTIMIZER_MIN_STD;
 
+    protected int Index_50hz => IndexClosestTo(50);
+    protected int Index_10khz => IndexClosestTo(10000);
+    protected int Index_20khz => IndexClosestTo(20000);
+
+    protected int Index_MinFreq => IndexClosestTo(min_f);
+    protected int Index_MaxFreq => IndexClosestTo(max_f);
+
+
+    private int IndexClosestTo(double Freq) => f.Select(i => Math.Abs(i - Freq)).argMin();
 
     public PEQ(IEnumerable<double> f, double fs, IEnumerable<PEQFilter> filters) : this(f, fs) => this.filters.AddRange(filters);
     public PEQ(IEnumerable<double> f, double fs)
     {
-        this.f = f.ToList();
-        this.fs = fs
-        self._min_f_ix = np.argmin(np.abs(self.f - self._min_f))
-        self._max_f_ix = np.argmin(np.abs(self.f - self._max_f))
-        self._ix50 = np.argmin(np.abs(self.f - 50))
-        self._10k_ix = np.argmin(np.abs(self.f - 10000))
-        self._20k_ix = np.argmin(np.abs(self.f - 20000))
+        this.FrequencyArray = f.ToArray();
+        this.fs = fs;
     }
+    /*
     /// <summary>
     /// Initializes class instance with configuration dict and target
     /// </summary>
@@ -75,7 +87,7 @@ public class PEQ
             ))
         return peq;
     }
-
+    */
     public void add_filter(PEQFilter filt)
     {
         if (filt.fs != fs)
@@ -134,64 +146,72 @@ public class PEQ
     }
 
     /// <summary>
-    /// Extracts fc, q and gain from optimizer params and updates filters
+    /// Extracts fc, q and gain from optimizer @params and updates filters
     /// </summary>
-    /// <param name="params">Parameter list/array passed by the optimizer. The values correspond to the initialized params</param>
+    /// <param name="@params">Parameter list/array passed by the optimizer. The values correspond to the initialized @params</param>
     public void _parse_optimizer_params(dynamic @params)
     {
         int i = 0;
 
         foreach (PEQFilter? filt in filters)
         {
-            if (filt.optimize_fc)
+            if (filt.@params_fc.HasValue)
             {
                 filt.fc = Math.Pow(10, @params[i]);
                 i += 1;
             }
 
-            if (filt.optimize_q)
+            if (filt.@params_q.HasValue)
             {
                 filt.q = @params[i];
                 i += 1;
             }
 
-            if (filt.optimize_gain)
+            if (filt.@params_gain .HasValue)
             {
                 filt.gain = @params[i];
                 i += 1;
             }
         }
     }
-    def _optimizer_loss(self, @params, parse=true):
-        """Calculates optimizer loss value"""
-        # Update filters with latest iteration params
-        if(parse)
-            self._parse_optimizer_params(params)
+    /// <summary>
+    /// Calculates optimizer loss value
+    /// </summary>
+    /// <param name="@params"></param>
+    /// <param name="parse"></param>
+    /// <returns></returns>
+    public double _optimizer_loss(dynamic @params, bool parse = true)
+    {
+        // Update filters with latest iteration @params
+        if (parse)
+            _parse_optimizer_params(@params);
 
-        # Above 10 kHz only the total energy matters so we'll take the average
-        fr = self.fr.copy()
-        target = self.target.copy()
-        target[self._10k_ix:] = np.mean(target[self._10k_ix:])
-        fr[self._10k_ix:] = np.mean(self.fr[self._10k_ix:])
-        #target[:self._ix50] = np.mean(target[:self._ix50])  # TODO: Is this good?
-        #fr[:self._ix50] = np.mean(fr[:self._ix50])
+        // Above 10 kHz only the total energy matters so we'll take the average
+        var fr = this.fr.ToList();
+        var target = this.target.ToList();
+        target.SetRange(Index_10khz..(target.Count), target.EnumerateFrom(Index_10khz).Average());
+        //target[self._10k_ix:] = np.mean(target[_10k_ix:])
+        //fr[self._10k_ix:] = np.mean(self.fr[self._10k_ix:])
+        fr.SetRange(Index_10khz..(fr.Count), fr.EnumerateFrom(Index_10khz).Average());
+        //#target[:self._ix50] = np.mean(target[:self._ix50])  // TODO: Is this good?
+        //#fr[:self._ix50] = np.mean(fr[:self._ix50])
 
-        # Mean squared error as loss, between minimum and maximum frequencies
-        loss_val = np.mean(np.square(target[self._min_f_ix:self._max_f_ix] - fr[self._min_f_ix:self._max_f_ix]))
+        // Mean squared error as loss, between minimum and maximum frequencies
+        double loss_val = target.Zip(fr, (t, r) => Math.Pow(t - r, 2)).Average();
+        //double loss_val = (np.square(target[self._min_f_ix:self._max_f_ix] - fr[self._min_f_ix:self._max_f_ix])).Average;
 
-        # Sum penalties from all filters to MSE
-        for filt in self.filters:
-            loss_val += filt.sharpness_penalty
-            #loss_val += filt.band_penalty  # TODO
+        // Sum penalties from all filters to MSE
+        loss_val += filters.Sum(f => f.sharpness_penalty);
+        //#loss_val += filt.band_penalty  // TODO
 
-        return np.sqrt(loss_val)
-
-    def _init_optimizer_params(self):
-        """Creates a list of initial parameter values for the optimizer
-
-        The list is fc, q and gain from each filter.Non-optimizable parameters are skipped.
-        """
-        var order = ImmutableArray.Create(
+        return Math.Sqrt(loss_val);
+    }
+    /// <summary>
+    /// Creates a list of initial parameter values for the optimizer The list is fc, q and gain from each filter.Non-optimizable parameters are skipped.
+    /// </summary>
+    /// <param name=""></param>
+    /// <returns></returns>
+    private static readonly IList<(string Name, bool, bool)> order = ImmutableArray.Create(
             (typeof(Peaking).Name, true, true),  // Peaking
             (typeof(LowShelf).Name, true, true),  // Low shelfs
             (typeof(HighShelf).Name, true, true),  // High shelfs
@@ -203,124 +223,145 @@ public class PEQ
             (typeof(HighShelf).Name, false, true),  // High shelfs with fixed fc
             (typeof(Peaking).Name, false, false),  // Peaking with fixed fc and q
             (typeof(LowShelf).Name, false, false),  // Low shelfs with fixed fc and q
-            (typeof(HighShelf).Name, false, false),  // High shelfs with fixed fc and q
+            (typeof(HighShelf).Name, false, false)   // High shelfs with fixed fc and q
         );
 
-        def init_order(filter_ix):
-            filt = self.filters[filter_ix]
-            ix = order.index([filt.__class__typeof().Name, filt.optimize_fc, filt.optimize_q])
-            val = ix * 100
-            if(filt.optimize_fc)
-                val += 1 / np.log2(filt.max_fc / filt.min_fc)
-            return val
+    private IList<(double? CenterFrequency, double? Quality, double? Gain)> _init_optimizer_params()
+    {
+        double init_order(int filter_ix)
+        {
+            PEQFilter filt = filters[filter_ix];
+            int ix = order.IndexOf((filt.GetType().Name, filt.@params_fc.HasValue, filt.@params_q.HasValue));
+            double val = ix * 100;
+            if (filt.@params_fc.HasValue)
+                val += 1 / Math.Log2(filt.@params_fc.Value.max / filt.@params_fc.Value.min);
+            return val;
+        }
 
-        # Initialize filter params as list of empty lists, one per filter
-        filter_params = [[]] * len(self.filters)
-        # Indexes to self.filters sorted by filter init order
-        filter_argsort = sorted(list(range(len(self.filters))), key=init_order, reverse=true)
-        remaining_target = self.target.copy()
-        for ix in filter_argsort:  # Iterate sorted filter indexes
-            filt = self.filters[ix]  # Get filter
-            filter_params[ix] = filt.init(remaining_target)  # Init filter and place params to list of lists
-            remaining_target -= filt.fr  # Adjust target
-        filter_params = np.concatenate(filter_params).flatten()  # Flatten params list
-        return filter_params
+        // Initialize filter @params as list of empty lists, one per filter
+        List<(double? CenterFrequency, double? Quality, double? Gain)>? filter_params = new(filters.Count);
 
-    def _init_optimizer_bounds(self):
-        """Creates optimizer bounds
+        // Indexes to self.filters sorted by filter init order
+        List<int> filter_argsort = Enumerable.Range(0, filters.Count).OrderByDescending(init_order).ToList();
+        List<double> remaining_target = target.ToList();
+        foreach (int ix in filter_argsort)  // Iterate sorted filter indexes
+        {
+            PEQFilter? filt = filters[ix];  // Get filter
+            filter_params[ix] = filt.init(remaining_target);  // Init filter and place @params to list of lists
+            remaining_target.SubZip(filt.fr);  // Adjust target
+        }
+//        filter_params = np.concatenate(filter_params).flatten()  // Flatten @params list
+        return filter_params;
+    }
 
-        For each optimizable fc, q and gain a (min, max) tuple is added
-        """
-        bounds = []
-        for filt in self.filters:
-            if(filt.optimize_fc)
-                bounds.append((np.log10(filt.min_fc), np.log10(filt.max_fc)))
-            if(filt.optimize_q)
-                bounds.append((filt.min_q, filt.max_q))
-            if(filt.optimize_gain)
-                bounds.append((filt.min_gain, filt.max_gain))
-        return bounds
+    /// <summary>
+    /// Creates optimizer bounds - For each optimizable fc, q and gain a (min, max) tuple is added
+    /// </summary>
+    /// <param name=""></param>
+    /// <returns></returns>
+    public IEnumerable<((double Min, double Max)? CenterFrequency, (double Min, double Max)? Quality, (double Min, double Max)? Gain)> _init_optimizer_bounds()
+    {
+        foreach(var filt in filters)
+        {
+            (double Min, double Max)? CenterFrequency = null;
+            (double Min, double Max)? Quality = null;
+            (double Min, double Max)? Gain = null;
+            if (filt.@params_fc.HasValue)
+                CenterFrequency = (Math.Log10(filt.@params_fc.Value.min), Math.Log10(filt.@params_fc.Value.max));
+            if(filt.@params_q.HasValue)
+                Quality = (filt.@params_q.Value.min, filt.@params_q.Value.max);
+            if(filt.@params_gain.HasValue)
+                Gain = (filt.@params_gain.Value.min, filt.@params_gain.Value.max);
+            yield return (CenterFrequency, Quality, Gain);
+        }
+    }
 
-    def _callback(self, params):
-        """Optimization callback function"""
-        n = 8
-        t = time() - self.history.start_time
-        loss = self._optimizer_loss(params, parse=false)
+    /// <summary>
+    /// Optimization callback function
+    /// </summary>
+    /// <param name=""></param>
+    private void _callback(dynamic @params)
+    {
+        TimeSpan t = history.SW.Elapsed;
+        double loss = _optimizer_loss(@params, parse: false);
+        //self.history.time.append(t)
 
-        self.history.time.append(t)
-        self.history.loss.append(loss)
+        // Standard deviation of the last N loss values
+        double std = history.LastStd(1);
+        // Standard deviation of the last N/2 loss values
+        double std_np2 = history.LastStd(0.5);
 
-        # Standard deviation of the last N loss values
-        std = np.std(np.array(self.history.loss[-n:]))
-        # Standard deviation of the last N/2 loss values
-        std_np2 = np.std(np.array(self.history.loss[-n//2:]))
-        self.history.std.append(std)
+        double moving_avg_loss = history.Points.Count >= OptimizationHistory.n ? history.LastN().Select(p => p.loss).Average() : 0.0;
 
-        moving_avg_loss = np.mean(np.array(self.history.loss[-n:])) if len(self.history.loss) >= n else 0.0
-        self.history.moving_avg_loss.append(moving_avg_loss)
-        if(len(self.history.moving_avg_loss) > 1)
-            d_loss = loss - self.history.moving_avg_loss[-2]
-            d_time = t - self.history.time[-2]
-            change_rate = d_loss / d_time if len(self.history.moving_avg_loss) > n else 0.0
-        else:
-            change_rate = 0.0
-        self.history.change_rate.append(change_rate)
-        self.history.params.append(params)
-        if(self._max_time is not None and t >= self._max_time)
-            raise OptimizationFinished("Maximum time reached")
-        if(self._target_loss is not None and loss <= self._target_loss)
-            raise OptimizationFinished("Target loss reached")
-        if (
-                self._min_change_rate is not None
-                and len(self.history.moving_avg_loss) > n
-                and -change_rate < self._min_change_rate
-        ):
-            raise OptimizationFinished("Change too small")
-        if self._min_std is not None and (
-                # STD from last N loss values must be below min STD OR...
-                (len(self.history.std) > n and std < self._min_std)
-                # ...STD from the last N/2 loss values must be below half of the min STD
-                or (len(self.history.std) > n // 2 and std_np2 < self._min_std / 2)
-        ):
-            raise OptimizationFinished("STD too small")
+        double change_rate;
+        if (history.Points.Count > 1)
+        {
+            var d_loss = loss - history.LastN(2).First().moving_avg_loss;
+            var d_time = t - history.LastN(2).First().TimeTaken;
+            change_rate = d_loss / d_time.TotalMilliseconds;
+        }
+        else
+        {
+            change_rate = 0.0;
+        }
 
-    def optimize(self):
-        """Optimizes filter parameters"""
-        self.history = OptimizationHistory()
-        try:
-            fmin_slsqp(  # Tested all of the scipy minimize methods, this is the best
-                self._optimizer_loss,
-                self._init_optimizer_params(),
-                bounds=self._init_optimizer_bounds(),
-                callback=self._callback,
-                iprint=0)
-        except OptimizationFinished as err:
-            # Restore best params
-            self._parse_optimizer_params(self.history.params[np.argmin(self.history.loss)])
-            #print(err)
+        OptimizationHistory.OptmizationPoint ThisPoint = new()
+        {
+            //    TimeTaken = t???,
+            std = std,
+            loss = loss,
+            @params = @params,
+            moving_avg_loss = moving_avg_loss,
+            change_rate = change_rate
+        };
+        if (max_time.HasValue && history.SW.Elapsed >= max_time.Value)
+            throw new OptimizationFinished("Maximum time reached");
+        if(target_loss != null && loss <= target_loss)
+            throw new OptimizationFinished("Target loss reached");
+        if (min_change_rate.HasValue && history.Points.Count > OptimizationHistory.n && -change_rate < min_change_rate.Value)
+            throw new OptimizationFinished("Change too small");
+        if (min_std.HasValue && (
+                // STD from last N loss values must be below min STD OR...
+                (history.Points.Count > OptimizationHistory.n && std < min_std)
+                // ...STD from the last N/2 loss values must be below half of the min STD
+                || (history.Points.Count > Math.Floor(OptimizationHistory.n / 2.0) && std_np2 < (min_std / 2))))
+            throw new OptimizationFinished("STD too small");
+    }
+    private NelderMeadSimplex? _Optimizer;
+    private NelderMeadSimplex Optimizer => _Optimizer ??= new(.0005, 10000);
+    /// <summary>
+    /// Optimizes filter parameters
+    /// </summary>
+    /// <returns></returns>
+    public dynamic optimize()
+    {
+        history = new();
+        try
+        {
 
-    def plot(self, fig=None, ax=None):
-        if(fig is None)
-            fig, ax = plt.subplots()
-            fig.set_size_inches(12, 8)
-            fig.set_facecolor("white")
-            ax.set_facecolor("white")
-            ax.set_xlabel("Frequency (Hz)")
-            ax.semilogx()
-            ax.set_xlim([20, 20e3])
-            ax.set_ylabel("Amplitude (dBr)")
-            ax.grid(true, which="major")
-            ax.grid(true, which="minor")
-            ax.xaxis.set_major_formatter(ticker.StrMethodFormatter("{x:.0f}"))
-            ax.set_xticks([20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000])
-        if(self.target is not None)
-            ax.plot(self.f, self.target, color="black", linestyle="--", linewidth=1, label="Target")
-        for i, filt in enumerate(self.filters):
-            ax.fill_between(filt.f, np.zeros(filt.fr.shape), filt.fr, alpha=0.3, color=$"C{i}")
-            ax.plot(filt.f, filt.fr, color=$"C{i}", linewidth=1)
-        ax.plot(self.f, self.fr, color="black", linewidth=1, label="FR")
-        ax.legend()
-        return fig, ax
+            Optimizer.FindMinimum()
+            Vector Guess = new DenseVector(new double[] { 1, 8 });
+            var objective = ObjectiveFunction.Value(FuncWrap);
+            MinimizationResult res = Opt.FindMinimum(objective, Guess);
+            Console.WriteLine(res.ReasonForExit);
+            Console.WriteLine(res.FunctionInfoAtMinimum.ToString());
+            Console.WriteLine(res.MinimizingPoint.ToString());
+            Console.WriteLine(FuncWrap(res.MinimizingPoint));            minimizer.
 
 
+            fmin_slsqp(  // Tested all of the scipy minimize methods, this is the best
+                _optimizer_loss,
+                _init_optimizer_params(),
+                bounds: self._init_optimizer_bounds(),
+                callback = self._callback,
+                iprint = 0);
+        }
+        catch (OptimizationFinished err)
+        {
+
+            // Restore best @params
+            _parse_optimizer_params(history.@params[np.argmin(history.loss)]);
+            Console.WriteLine(err);
+        }
+    }
 }

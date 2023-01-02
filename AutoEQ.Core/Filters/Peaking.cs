@@ -1,4 +1,5 @@
-﻿using System;
+﻿using AutoEQ.Helper;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -86,18 +87,18 @@ public class Peaking : PEQFilter
     {
         get
         {
-            var a = Math.Pow(10, (gain / 40));
-            var w0 = Math.Tau * fc / _fs;
+            double a = Math.Pow(10, gain.Value / 40);
+            double w0 = Math.Tau * fc.Value / _fs;
 
-            var alpha = Math.Sin(w0!.Value) / (2 * q);
+            double alpha = Math.Sin(w0) / (2 * q.Value);
 
-            var a0 = 1 + alpha / a;
-            var a1 = -(-2 * Math.Cos(w0!.Value)) / a0;
-            var a2 = -(1 - (alpha / a)) / a0;
+            double a0 = 1 + alpha / a;
+            double a1 = -(-2 * Math.Cos(w0)) / a0;
+            double a2 = -(1 - (alpha / a)) / a0;
 
-            var b0 = (1 + alpha * a) / a0;
-            var b1 = (-2 * Math.Cos(w0)) / a0;
-            var b2 = (1 - alpha * a) / a0;
+            double b0 = (1 + (alpha * a)) / a0;
+            double b1 = -2 * Math.Cos(w0) / a0;
+            double b2 = (1 - (alpha * a)) / a0;
 
             return (1.0, a1, a2, b0, b1, b2);
         }
@@ -121,30 +122,6 @@ public class Peaking : PEQFilter
             return fr.Select(EachResponseFunc).Average();
 
             double EachResponseFunc(double response) => Math.Pow(response * sharpness_penalty_coefficient, 2);
-        }
-    }
-    /// <summary>
-    /// Calculates penalty for transition band extending Nyquist frequency
-    /// 
-    /// Biquad filter shape starts to get distorted when the transition band extends Nyquist frequency in such a way
-    /// that the right side gets compressed(greater slope). This method calculates the RMSE between
-    /// the left and right sides of the frequency response.If the right side is fully compressed, the penalty is the
-    /// entire effect of frequency response thus negating the filter entirely.Right side is mirrored around vertical axis.
-    /// </summary>
-    /// <param name=""></param>
-    /// <returns></returns>
-    public override double band_penalty
-    {
-        get
-        {
-            //Index to frequency array closes to center frequency
-            //f.Select(i => Math.Abs(i - fc!.Value));
-            var fc_ix = np.argmin(np.abs(f - fc));
-            // Number of indexes on each side of center frequency, not extending outside, only up to 10 kHz
-            var n = Math.Min(fc_ix, ix10k - fc_ix);
-            if (n == 0)
-                return 0.0
-            return np.mean(np.square(self.fr[fc_ix - n:fc_ix] - self.fr[fc_ix + n - 1:fc_ix - 1:-1]));
         }
     }
 }

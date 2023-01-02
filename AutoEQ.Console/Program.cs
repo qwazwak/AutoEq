@@ -1,7 +1,7 @@
-﻿using AutoEQ2.Core;
+﻿using AutoEQ.Core;
 using CommandLine;
 
-namespace AutoEQ2.Console;
+namespace AutoEQ.ConsoleUI;
 /*
 from autoeq.constants import DEFAULT_MAX_GAIN, DEFAULT_TREBLE_F_LOWER, DEFAULT_TREBLE_F_UPPER, \
     DEFAULT_TREBLE_GAIN_K, DEFAULT_FS, DEFAULT_BIT_DEPTH, DEFAULT_PHASE, DEFAULT_F_RES, DEFAULT_BASS_BOOST_FC, \
@@ -35,7 +35,7 @@ public class AutoEQ2Options : IAutoEQ2Options
     public bool Compensation { get; set; } = false;
 
     [Option('e', "equalize", Required = false, Default = false, HelpText = "Will run equalization if this parameter exists, no value needed.")]
-    public bool Equalize { get => true; set => Console.WriteLine("\"equalize\" parameter is no longer supported. The equalization target is created automatically every time."); }
+    public bool Equalize { get => true; set => ConsoleUI.WriteLine("\"equalize\" parameter is no longer supported. The equalization target is created automatically every time."); }
 
 
     /*
@@ -261,15 +261,15 @@ public class Class1
 
                    if (args.Verbose)
                    {
-                       Console.WriteLine($"Verbose output enabled. Current Arguments: -v {args.Verbose}");
-                       Console.WriteLine("Quick Start Example! App is in Verbose mode!");
+                       ConsoleUI.WriteLine($"Verbose output enabled. Current Arguments: -v {args.Verbose}");
+                       ConsoleUI.WriteLine("Quick Start Example! App is in Verbose mode!");
                    }
 
                    // Replace hyphens with underscores to be compatible with the batch_processing method signature
                    //args = {key.replace('-', '_'): val for key, val in args.items()}
                    if (args.Equalize)
                    {
-                       Console.WriteLine("\"equalize\" parameter is no longer supported. The equalization target is created automatically every time.");
+                       ConsoleUI.WriteLine("\"equalize\" parameter is no longer supported. The equalization target is created automatically every time.");
                    }
 
 
